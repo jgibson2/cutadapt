@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-Adapter finding and trimming classes
+VBIM sequence finding and trimming classes
 
-The ...Adapter classes are responsible for finding adapters.
+The ...Seq classes are responsible for finding adapters.
 The ...Match classes trim the reads.
 """
 from __future__ import print_function, division, absolute_import
@@ -10,7 +10,7 @@ import sys
 import re
 from collections import defaultdict
 from cutadapt import align, colorspace
-from cutadapt.seqio import ColorspaceSequence, FastaReader
+from cutadapt.seqio import ColorspaceSequence, FastaReader, Sequence
 
 # Constants for the find_best_alignment function.
 # The function is called with SEQ1 as the adapter, SEQ2 as the read.
@@ -63,18 +63,17 @@ def parse_braces(sequence):
     return result
 
 
-class AdapterParser(object):
+class VBIMParser(object):
     """
     Factory for Adapter classes that all use the same parameters (error rate,
     indels etc.). The given **kwargs will be passed to the Adapter constructors.
     """
 
-    def __init__(self, colorspace=False, **kwargs):
-        self.colorspace = colorspace
+    def __init__(self, **kwargs):
         self.constructor_args = kwargs
-        self.adapter_class = ColorspaceAdapter if colorspace else Adapter
+        self.adapter_class = VBIMSeq
 
-    def _parse_no_file(self, spec, name=None, cmdline_type='back'):
+    def _parse_no_file(self, spec, name=None, cmdline_type='anywhere'):
         """
         Parse an adapter specification not using ``file:`` notation and return
         an object of an appropriate Adapter class. The notation for anchored
@@ -82,8 +81,7 @@ class AdapterParser(object):
         an attempt is made to extract the name from the specification
         (If spec is 'name=ADAPTER', name will be 'name'.)
 
-        cmdline_type -- describes which commandline parameter was used (``-a``
-        is 'back', ``-b`` is 'anywhere', and ``-g`` is 'front').
+
         """
         if name is None:
             name, spec = self._extract_name(spec)
@@ -104,51 +102,28 @@ class AdapterParser(object):
         sequence1, middle, sequence2 = spec.partition('...')
         if where == ANYWHERE:
             if front_anchored or back_anchored:
-                raise ValueError("'anywhere' (-b) adapters may not be anchored")
+                raise ValueError("'anywhere' (-b) VBIM sequences may not be anchored")
             if middle == '...':
-                raise ValueError("'anywhere' (-b) adapters may not be linked")
+                raise ValueError("'anywhere' (-b) VBIM sequences may not be linked")
             return self.adapter_class(sequence=spec, where=where, name=name, **self.constructor_args)
 
         assert where == FRONT or where == BACK
         if middle == '...':
-            if not sequence1:
-                if where == BACK:  # -a ...ADAPTER
-                    spec = sequence2
-                else:  # -g ...ADAPTER
-                    raise ValueError('Invalid adapter specification')
-            elif not sequence2:
-                if where == BACK:  # -a ADAPTER...
-                    spec = sequence1
-                    where = FRONT
-                    front_anchored = True
-                else:  # -g ADAPTER...
-                    spec = sequence1
-            else:
-                # linked adapter
-                if self.colorspace:
-                    raise NotImplementedError(
-                        'Using linked adapters in colorspace is not supported')
-                # automatically anchor 5' adapter if -a is used
-                if where == BACK:
-                    front_anchored = True
-
-                return LinkedAdapter(sequence1, sequence2, name=name,
-                                     front_anchored=front_anchored, back_anchored=back_anchored,
-                                     **self.constructor_args)
+            raise ValueError("VBIM sequences cannot be linked")
         if front_anchored and back_anchored:
-            raise ValueError('Trying to use both "^" and "$" in adapter specification {!r}'.format(orig_spec))
+            raise ValueError('Trying to use both "^" and "$" in VBIM seq specification {!r}'.format(orig_spec))
         if front_anchored:
             if where == BACK:
-                raise ValueError("Cannot anchor the 3' adapter at its 5' end")
+                raise ValueError("Cannot anchor the 3' VBIM seq at its 5' end")
             where = PREFIX
         elif back_anchored:
             if where == FRONT:
-                raise ValueError("Cannot anchor 5' adapter at 3' end")
+                raise ValueError("Cannot anchor 5' VBIM seq at 3' end")
             where = SUFFIX
 
         return self.adapter_class(sequence=spec, where=where, name=name, **self.constructor_args)
 
-    def parse(self, spec, cmdline_type='back'):
+    def parse(self, spec, cmdline_type='anywhere'):
         """
         Parse an adapter specification and yield appropriate Adapter classes.
         This works like the _parse_no_file() function above, but also supports the
@@ -156,6 +131,7 @@ class AdapterParser(object):
         file. Since a file can contain multiple adapters, this
         function is a generator.
         """
+
         if spec.startswith('file:'):
             # read adapter sequences from a file
             with FastaReader(spec[5:]) as fasta:
@@ -194,38 +170,31 @@ class AdapterParser(object):
         return adapters
 
 
-class Match(object):
+class VBIMMatch(object):
     """
     Representation of a single adapter matched to a single read.
 
     TODO creating instances of this class is relatively slow and responsible for quite some runtime.
     """
-    __slots__ = ['astart', 'astop', 'rstart', 'rstop', 'matches', 'errors', 'remove_before',
-                 'adapter', 'read', 'length', '_trimmed_read', 'adjacent_base']
+    __slots__ = ['astart', 'astop', 'rstart', 'rstop', 'matches', 'errors',
+                 'vbim', 'read', 'length', '_trimmed_read', 'adjacent_base']
 
-    def __init__(self, astart, astop, rstart, rstop, matches, errors, remove_before, adapter, read):
-        """
-        remove_before -- True: remove bases before adapter. False: remove after
-        """
+    def __init__(self, astart, astop, rstart, rstop, matches, errors, vbim, read):
         self.astart = astart
         self.astop = astop
         self.rstart = rstart
         self.rstop = rstop
         self.matches = matches
         self.errors = errors
-        self.adapter = adapter
+        self.vbim = vbim
         self.read = read
-        if remove_before:
-            self._trim_front()
-        else:
-            self._trim_back()
-        self.remove_before = remove_before
+        self._trim()
         # Number of aligned characters in the adapter. If there are
         # indels, this may be different from the number of characters
         # in the read.
         self.length = self.astop - self.astart
         assert self.length > 0
-        assert self.errors / self.length <= self.adapter.max_error_rate
+        assert self.errors / self.length <= self.vbim.max_error_rate
         assert self.length - self.errors > 0
 
     def __repr__(self):
@@ -242,21 +211,15 @@ class Match(object):
         is not available.
         """
         wildcards = [self.read.sequence[self.rstart + i] for i in range(self.length)
-                     if self.adapter.sequence[self.astart + i] == wildcard_char and
+                     if self.vbim.sequence[self.astart + i] == wildcard_char and
                      self.rstart + i < len(self.read.sequence)]
         return ''.join(wildcards)
 
     def rest(self):
         """
-        Return the part of the read before this match if this is a
-        'front' (5') adapter,
-        return the part after the match if this is not a 'front' adapter (3').
-        This can be an empty string.
+        Return parts of the sequence not containing the VBIM sequence
         """
-        if self.remove_before:
-            return self.read.sequence[:self.rstart]
-        else:
-            return self.read.sequence[self.rstop:]
+        return self.read.sequence[:self.rstart] + self.read.sequence[self.rstop:]
 
     def get_info_record(self):
         seq = self.read.sequence
@@ -269,7 +232,7 @@ class Match(object):
             seq[0:self.rstart],
             seq[self.rstart:self.rstop],
             seq[self.rstop:],
-            self.adapter.name
+            self.vbim.name
         )
         if qualities:
             info += (
@@ -285,59 +248,21 @@ class Match(object):
     def trimmed(self):
         return self._trimmed_read
 
-    def _trim_front(self):
-        """Compute the trimmed read, assuming it’s a 'front' adapter"""
-        self._trimmed_read = self.read[self.rstop:]
-        self.adjacent_base = ''
-
-    def _trim_back(self):
-        """Compute the trimmed read, assuming it’s a 'back' adapter"""
-        adjacent_base = self.read.sequence[self.rstart - 1:self.rstart]
+    def _trim(self):
+        """Compute the trimmed read"""
+        self._trimmed_read = Sequence(self.read.name, self.read.sequence[:self.rstart] + self.read.sequence[self.rstop:],
+                                      qualities=self.read.qualities[:self.rstart] + self.read.qualities[self.rstop:]
+                                      if self.read.qualities else None, second_header=self.read.second_header, match=self)
+        adjacent_base = self.read.sequence[self.rstart - 1]
         if adjacent_base not in 'ACGT':
             adjacent_base = ''
         self.adjacent_base = adjacent_base
-        self._trimmed_read = self.read[:self.rstart]
 
     def update_statistics(self, statistics):
         """Update AdapterStatistics in place"""
-        if self.remove_before:
-            statistics.errors_front[self.rstop][self.errors] += 1
-        else:
-            statistics.errors_back[len(self.read) - len(self._trimmed_read)][self.errors] += 1
-            statistics.adjacent_bases[self.adjacent_base] += 1
-
-
-class ColorspaceMatch(Match):
-    adjacent_base = ''
-
-    def _trim_front(self):
-        """Return a trimmed read"""
-        read = self.read
-        # to remove a front adapter, we need to re-encode the first color following the adapter match
-        color_after_adapter = read.sequence[self.rstop:self.rstop + 1]
-        if not color_after_adapter:
-            # the read is empty
-            new_read = read[self.rstop:]
-        else:
-            base_after_adapter = colorspace.DECODE[self.adapter.nucleotide_sequence[-1:] + color_after_adapter]
-            new_first_color = colorspace.ENCODE[read.primer + base_after_adapter]
-            new_read = read[:]
-            new_read.sequence = new_first_color + read.sequence[(self.rstop + 1):]
-            new_read.qualities = read.qualities[self.rstop:] if read.qualities else None
-        self._trimmed_read = new_read
-
-    def _trim_back(self):
-        """Return a trimmed read"""
-        # trim one more color if long enough
-        adjusted_rstart = max(self.rstart - 1, 0)
-        self._trimmed_read = self.read[:adjusted_rstart]
-
-    def update_statistics(self, statistics):
-        """Update AdapterStatistics in place"""
-        if self.remove_before:
-            statistics.errors_front[self.rstop][self.errors] += 1
-        else:
-            statistics.errors_back[len(self.read) - len(self._trimmed_read)][self.errors] += 1
+        # this isn't used at all?
+        statistics.errors[self.rstop][self.errors] += 1
+        #statistics.adjacent_bases[self.adjacent_base] += 1
 
 
 def _generate_adapter_name(_start=[1]):
@@ -346,7 +271,7 @@ def _generate_adapter_name(_start=[1]):
     return name
 
 
-class Adapter(object):
+class VBIMSeq(object):
     """
     This class can find a single adapter characterized by sequence, error rate,
     type etc. within reads.
@@ -395,7 +320,6 @@ class Adapter(object):
         # Optimization: Use non-wildcard matching if only ACGT is used
         self.adapter_wildcards = adapter_wildcards and not set(self.sequence) <= set('ACGT')
         self.read_wildcards = read_wildcards
-        self.remove_before = where not in (BACK, SUFFIX)
 
         self.aligner = align.Aligner(self.sequence, self.max_error_rate,
                                      flags=self.where, wildcard_ref=self.adapter_wildcards,
@@ -406,6 +330,7 @@ class Adapter(object):
             # When indels are disallowed, an entirely different algorithm
             # should be used.
             self.aligner.indel_cost = 100000
+
 
 
     def __repr__(self):
@@ -423,7 +348,7 @@ class Adapter(object):
         self.debug = True
         self.aligner.enable_debug()
 
-    def match_to(self, read, match_class=Match):
+    def match_to(self, read, match_class=VBIMMatch):
         """
         Attempt to match this adapter to the given read.
 
@@ -432,7 +357,6 @@ class Adapter(object):
         overlap length, maximum error rate).
         """
         read_seq = read.sequence.upper()  # temporary copy
-        remove_before = self.remove_before
         pos = -1
         # try to find an exact match first unless wildcards are allowed
         if not self.adapter_wildcards:
@@ -443,12 +367,9 @@ class Adapter(object):
             else:
                 pos = read_seq.find(self.sequence)
         if pos >= 0:
-            if self.where == ANYWHERE:
-                # guess: if alignment starts at pos 0, it’s a 5' adapter
-                remove_before = pos == 0
             match = match_class(
                 0, len(self.sequence), pos, pos + len(self.sequence),
-                len(self.sequence), 0, remove_before, self, read)
+                len(self.sequence), 0, self, read)
         else:
             # try approximate matching
             if not self.indels and self.where in (PREFIX, SUFFIX):
@@ -462,7 +383,7 @@ class Adapter(object):
                                                        wildcard_query=self.read_wildcards)
                 astart, astop, rstart, rstop, matches, errors = alignment
                 if astop - astart >= self.min_overlap and errors / (astop - astart) <= self.max_error_rate:
-                    match = match_class(*(alignment + (remove_before, self, read)))
+                    match = match_class(*(alignment + (self, read)))
                 else:
                     match = None
             else:
@@ -473,10 +394,7 @@ class Adapter(object):
                     match = None
                 else:
                     astart, astop, rstart, rstop, matches, errors = alignment
-                    if self.where == ANYWHERE:
-                        # guess: if alignment starts at pos 0, it’s a 5' adapter
-                        remove_before = rstart == 0
-                    match = match_class(astart, astop, rstart, rstop, matches, errors, remove_before, self, read)
+                    match = match_class(astart, astop, rstart, rstop, matches, errors, self, read)
 
         if match is None:
             return None
@@ -496,10 +414,7 @@ class Adapter(object):
         i bases of this adapter match a random sequence with
         GC content gc_content.
         """
-        if self.remove_before:
-            seq = self.sequence[::-1]
-        else:
-            seq = self.sequence
+        seq = self.sequence
         allowed_bases = 'CGRYSKMBDHVN' if self.adapter_wildcards else 'GC'
         p = 1
         probabilities = [p]
@@ -511,155 +426,3 @@ class Adapter(object):
             probabilities.append(p)
         return probabilities
 
-
-class ColorspaceAdapter(Adapter):
-    """
-    An Adapter, but in color space. It does not support all adapter types
-    (see the 'where' parameter).
-    """
-
-    def __init__(self, *args, **kwargs):
-        """
-        sequence -- the adapter sequence as a str, can be given in nucleotide space or in color space
-        where -- PREFIX, FRONT, BACK
-        """
-        if kwargs.get('adapter_wildcards', False):
-            raise ValueError('Wildcards not supported for colorspace adapters')
-        kwargs['adapter_wildcards'] = False
-        super(ColorspaceAdapter, self).__init__(*args, **kwargs)
-        has_nucleotide_seq = False
-        if set(self.sequence) <= set('ACGT'):
-            # adapter was given in basespace
-            self.nucleotide_sequence = self.sequence
-            has_nucleotide_seq = True
-            self.sequence = colorspace.encode(self.sequence)[1:]
-        if self.where in (PREFIX, FRONT) and not has_nucleotide_seq:
-            raise ValueError("A 5' colorspace adapter needs to be given in nucleotide space")
-        self.aligner.reference = self.sequence
-
-    def __repr__(self):
-        return '<ColorspaceAdapter(sequence={0!r}, where={1})>'.format(self.sequence, self.where)
-
-    def match_to(self, read, match_class=ColorspaceMatch):
-        """
-        Match the adapter to the given read
-
-        Return a ColorspaceMatch instance or None if the adapter was not found
-        """
-        if self.where != PREFIX:
-            return super(ColorspaceAdapter, self).match_to(read, match_class=match_class)
-        # create artificial adapter that includes a first color that encodes the
-        # transition from primer base into adapter
-        asequence = colorspace.ENCODE[read.primer + self.nucleotide_sequence[0:1]] + self.sequence
-
-        pos = 0 if read.sequence.startswith(asequence) else -1
-        if pos >= 0:
-            match = ColorspaceMatch(
-                0, len(asequence), pos, pos + len(asequence),
-                len(asequence), 0, self.remove_before, self, read)
-        else:
-            # try approximate matching
-            self.aligner.reference = asequence
-            alignment = self.aligner.locate(read.sequence)
-            if self.debug:
-                print(self.aligner.dpmatrix)  # pragma: no cover
-            if alignment is not None:
-                match = ColorspaceMatch(*(alignment + (self.remove_before, self, read)))
-            else:
-                match = None
-
-        if match is None:
-            return None
-        assert match.length > 0 and match.errors / match.length <= self.max_error_rate
-        assert match.length >= self.min_overlap
-        return match
-
-
-class LinkedMatch(object):
-    """
-    Represent a match of a LinkedAdapter
-    """
-
-    def __init__(self, front_match, back_match, adapter):
-        """
-        One of front_match and back_match must be not None!
-        """
-        self.front_match = front_match
-        self.back_match = back_match
-        self.adapter = adapter
-        assert not adapter.front_anchored or front_match is not None
-        assert not adapter.back_anchored or back_match is not None
-
-    def __repr__(self):
-        return '<LinkedMatch(front_match={0!r}, back_match={1}, adapter={2})>'.format(
-            self.front_match, self.back_match, self.adapter)
-
-    @property
-    def matches(self):
-        """Number of matching bases"""
-        m = getattr(self.front_match, 'matches', [])
-        if self.back_match is not None:
-            m += self.back_match.matches
-        return m
-
-    def trimmed(self):
-        if self.back_match:
-            # back match is relative to front match, so even if a front match exists,
-            # this is correct
-            return self.back_match.trimmed()
-        else:
-            assert self.front_match
-            return self.front_match.trimmed()
-
-    @property
-    def adjacent_base(self):
-        return self.back_match.adjacent_base
-
-    def update_statistics(self, statistics):
-        """Update AdapterStatistics in place"""
-        if self.front_match:
-            statistics.errors_front[self.front_match.rstop][self.front_match.errors] += 1
-        if self.back_match:
-            statistics.errors_back[len(self.back_match.read) - self.back_match.rstart][self.back_match.errors] += 1
-
-
-class LinkedAdapter(object):
-    """
-    """
-
-    def __init__(self, front_sequence, back_sequence,
-                 front_anchored=True, back_anchored=False, name=None, **kwargs):
-        """
-        kwargs are passed on to individual Adapter constructors
-        """
-        where1 = PREFIX if front_anchored else FRONT
-        where2 = SUFFIX if back_anchored else BACK
-        self.front_anchored = front_anchored
-        self.back_anchored = back_anchored
-
-        # The following attributes are needed for the report
-        self.where = LINKED
-        self.name = _generate_adapter_name() if name is None else name
-        self.front_adapter = Adapter(front_sequence, where=where1, name=None, **kwargs)
-        self.back_adapter = Adapter(back_sequence, where=where2, name=None, **kwargs)
-
-    def enable_debug(self):
-        self.front_adapter.enable_debug()
-        self.back_adapter.enable_debug()
-
-    def match_to(self, read):
-        """
-        Match the linked adapters against the given read. Any anchored adapters are
-        required to exist for a successful match.
-        """
-        front_match = self.front_adapter.match_to(read)
-        if self.front_anchored and front_match is None:
-            return None
-
-        if front_match is not None:
-            # TODO statistics
-            read = front_match.trimmed()
-        back_match = self.back_adapter.match_to(read)
-        if back_match is None and (self.back_anchored or front_match is None):
-            return None
-        return LinkedMatch(front_match, back_match, self)
