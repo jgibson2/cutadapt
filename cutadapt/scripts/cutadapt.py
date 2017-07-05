@@ -429,6 +429,21 @@ def get_option_parser():
                      help="VBIM paired output file to contain second read")
     group.add_option('--vbim-where', action='store', choices=['back', 'front', 'anywhere'], dest='vbim_where',
                      default='anywhere', help="Where to look for VBIM sequences")
+    group.add_option("--vbim-error-rate", type=float, default=0.1,
+                     help="Maximum allowed error rate (no. of errors divided by the length "
+                          "of the matching region). Default: %default", dest='vbim_error_rate')
+    group.add_option("--vbim-no-indels", action='store_false', default=True,
+                     help="Allow only mismatches in alignments. "
+                          "Default: allow both mismatches and indels", dest='vbim_indels')
+    group.add_option("--vbim-overlap", type=int, metavar="MINLENGTH", default=35,
+                     help="If the overlap between the read and the adapter is shorter than "
+                          "MINLENGTH, the read is not modified. Reduces the no. of bases "
+                          "trimmed due to random adapter matches. Default: %default", dest='vbim_overlap')
+    group.add_option("--vbim-match-read-wildcards", action="store_true", default=False,
+                     help="Interpret IUPAC wildcards in reads. Default: %default", dest='vbim_match_read_wildcards')
+    group.add_option("--vbim-no-match-adapter-wildcards", action="store_false",
+                     default=True, dest='vbim_match_adapter_wildcards',
+                     help="Do not interpret IUPAC wildcards in adapters.")
     parser.add_option_group(group)
 
     return parser
@@ -580,11 +595,11 @@ def pipeline_from_parsed_args(options, args, default_outfile):
         vbim_seq = None
         vbim_writer = None
         vbim_parser = VBIMParser(
-            max_error_rate=options.error_rate,
-            min_overlap=options.overlap,
-            read_wildcards=options.match_read_wildcards,
-            adapter_wildcards=options.match_adapter_wildcards,
-            indels=options.indels)
+            max_error_rate=options.vbim_error_rate,
+            min_overlap=options.vbim_overlap,
+            read_wildcards=options.vbim_match_read_wildcards,
+            adapter_wildcards=options.vbim_match_adapter_wildcards,
+            indels=options.vbim_indels)
         try:
             vbim_seqs = vbim_parser.parse(options.vbim_seq, options.vbim_where)
         except IOError as e:

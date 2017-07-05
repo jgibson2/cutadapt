@@ -299,7 +299,7 @@ class VBIMSeq(object):
         unique number.
     """
 
-    def __init__(self, sequence, where, max_error_rate=0.1, min_overlap=3,
+    def __init__(self, sequence, where, max_error_rate=0.1, min_overlap=35,
                  read_wildcards=False, adapter_wildcards=True, name=None, indels=True):
         self.debug = False
         self.name = _generate_adapter_name() if name is None else name

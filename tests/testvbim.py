@@ -10,7 +10,6 @@ def test_sequence():
         sequence='CCACCATGGATTACAAGGATGACGACGATAAGAATTCTT',
         where=ANYWHERE,
         max_error_rate=0.1,
-        min_overlap=3,
         read_wildcards=False,
         adapter_wildcards=False)
     read = Sequence(name="test1", sequence='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACCACCATGGATTACAAGGATGACGACGATAAGAATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT')

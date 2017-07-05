@@ -29,6 +29,11 @@ the terms of the MIT license.
 If you use cutadapt, please cite
 `DOI:10.14806/ej.17.1.200 <http://dx.doi.org/10.14806/ej.17.1.200>`_ .
 
+This version of cutadapt also contains utilities for dealing with VBIM (Validation-Based Insertional Mutagenesis),
+a technique in which a strong cytomegalovirus (CMV) promoter is randomly inserted into the genome using a lentivirus
+vector. This results in the insertion of an approx. 40bp fragment, which can then be identified in the resulting
+sequence.
+
 
 Links
 -----
@@ -39,3 +44,4 @@ Links
 * `Project page on PyPI (Python package index) <https://pypi.python.org/pypi/cutadapt/>`_
 * `Follow @marcelm_ on Twitter <https://twitter.com/marcelm_>`_
 * `Wrapper for the Galaxy platform <https://bitbucket.org/lance_parsons/cutadapt_galaxy_wrapper>`_
+

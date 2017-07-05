@@ -160,8 +160,8 @@ class VBIMRedirector(object):
         self.written_bp = [0, 0]
 
     def __call__(self, read):
-        r = self.filter(read)
-        if r:
+        r, matched = self.filter(read)
+        if matched:
             self.filtered += 1
             if self.writer is not None:
                 self.writer.write(r)
@@ -184,10 +184,10 @@ class PairedVBIMRedirector(object):
         self.written_bp = [0, 0]
 
     def __call__(self, read1, read2):
-        r1 = self.filter(read1)
-        r2 = self.filter(read2)
+        r1, matched1 = self.filter(read1)
+        r2, matched2 = self.filter(read2)
         self.filtered += 1
-        if r1 or r2:
+        if matched1 or matched2:
             # discard read
             if self.writer is not None:
                 self.writer.write(r1, r2)
@@ -320,6 +320,7 @@ class VBIMSequenceFilter(object):
 
     def __call__(self, read):
         match = self.vbimseq.match_to(read)
+        #print(match)
         if match:
-            return match.trimmed()
-        return read
+            return match.trimmed(), DISCARD
+        return read, KEEP
