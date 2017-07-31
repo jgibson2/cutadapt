@@ -219,7 +219,8 @@ class VBIMMatch(object):
         """
         Return parts of the sequence not containing the VBIM sequence
         """
-        return self.read.sequence[:self.rstart] + self.read.sequence[self.rstop:]
+        #return self.read.sequence[:self.rstart] + self.read.sequence[self.rstop:]
+        return self.read.sequence[self.rstop:]
 
     def get_info_record(self):
         seq = self.read.sequence
@@ -250,9 +251,17 @@ class VBIMMatch(object):
 
     def _trim(self):
         """Compute the trimmed read"""
+        """
+        #Only removes VBIM tag
         self._trimmed_read = Sequence(self.read.name, self.read.sequence[:self.rstart] + self.read.sequence[self.rstop:],
                                       qualities=self.read.qualities[:self.rstart] + self.read.qualities[self.rstop:]
                                       if self.read.qualities else None, second_header=self.read.second_header, match=self)
+        """
+        self._trimmed_read = Sequence(self.read.name,
+                                      self.read.sequence[self.rstop:],
+                                      qualities=self.read.qualities[self.rstop:]
+                                      if self.read.qualities else None, second_header=self.read.second_header,
+                                      match=self)
         adjacent_base = self.read.sequence[self.rstart - 1]
         if adjacent_base not in 'ACGT':
             adjacent_base = ''
