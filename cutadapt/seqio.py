@@ -779,3 +779,15 @@ def _seqopen1(file, colorspace=False, fileformat=None, mode='r', qualities=None)
         if line.startswith('@'):
             return fastq_handler(FileWithPrependedLine(file, line))
     raise UnknownFileType("File is neither FASTQ nor FASTA.")
+
+
+def reverse_complement(seq):
+    """
+    reverse complement a sequence
+    :param seq: string
+    :return: string
+    """
+    basecomplement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    letters = list(s)
+    letters = [basecomplement[base] for base in letters]
+    return ''.join(letters[::-1])

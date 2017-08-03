@@ -259,8 +259,8 @@ class VBIMMatch(object):
         """
         self._trimmed_read = Sequence(self.read.name,
                                       self.read.sequence[self.rstop:],
-                                      qualities=self.read.qualities[self.rstop:]
-                                      if self.read.qualities else None, second_header=self.read.second_header,
+                                      qualities=self.read.qualities[self.rstop:] if self.read.qualities else None,
+                                      second_header=self.read.second_header,
                                       match=self)
         adjacent_base = self.read.sequence[self.rstart - 1]
         if adjacent_base not in 'ACGT':

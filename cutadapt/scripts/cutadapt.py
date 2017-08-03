@@ -614,9 +614,11 @@ def pipeline_from_parsed_args(options, args, default_outfile):
             if paired:
                 vbim_writer = open_writer(options.vbim_out, options.vbim_paired_out, interleaved=interleaved_output)
                 filters.append(PairedVBIMRedirector(vbim_writer, VBIMSequenceFilter(vbim_seq)))
+                filters.append(PairedVBIMRedirector(vbim_writer, VBIMSequenceFilter(seqio.reverse_complement(vbim_seq))))
             else:
                 vbim_writer = open_writer(options.vbim_out, interleaved=interleaved_output)
                 filters.append(VBIMRedirector(vbim_writer, VBIMSequenceFilter(vbim_seq)))
+                filters.append(VBIMRedirector(vbim_writer, VBIMSequenceFilter(seqio.reverse_complement(vbim_seq))))
 
     demultiplexer = None
     untrimmed_writer = None
