@@ -788,6 +788,6 @@ def reverse_complement(seq):
     :return: string
     """
     basecomplement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
-    letters = list(s)
+    letters = list(seq)
     letters = [basecomplement[base] for base in letters]
     return ''.join(letters[::-1])
