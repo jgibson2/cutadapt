@@ -10,7 +10,7 @@ import sys
 import re
 from collections import defaultdict
 from cutadapt import align, colorspace
-from cutadapt.seqio import ColorspaceSequence, FastaReader, Sequence
+from cutadapt.seqio import ColorspaceSequence, FastaReader, Sequence, reverse_complement
 
 # Constants for the find_best_alignment function.
 # The function is called with SEQ1 as the adapter, SEQ2 as the read.
@@ -434,4 +434,9 @@ class VBIMSeq(object):
                 p *= (1 - gc_content) / 2
             probabilities.append(p)
         return probabilities
+
+    def reverse_complement(self):
+        return VBIMSeq(reverse_complement(self.sequence), self.where,
+                self.max_error_rate, self.min_overlap,
+                 self.read_wildcards, self.adapter_wildcards, self.name, self.indels)
 
